@@ -9,12 +9,14 @@ from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from dotenv import load_dotenv
+from aiogram.utils import markdown
 
 import db
-from utils import parse_shift, format_shift, parse_time_range
+from utils import format_shift, parse_time_range, format_shift_short, md_escape, MONTHS_LIST
 import keyboards
-import calendar_utils as cal
+import calendar as cal
 from aiogram_calendar import simple_calendar
+import messages
 
 logging.basicConfig(level=logging.INFO)
 load_dotenv()
@@ -24,7 +26,7 @@ if not BOT_TOKEN:
     raise RuntimeError('BOT_TOKEN not set')
 DEV_ADMINS = {int(uid) for uid in os.getenv('DEV_ADMINS', '').split(',') if uid.isdigit()}
 
-bot = Bot(BOT_TOKEN, parse_mode='HTML')
+bot = Bot(BOT_TOKEN, parse_mode='MarkdownV2')
 dp = Dispatcher()
 
 db.init_db()
@@ -40,10 +42,14 @@ class OfferShift(StatesGroup):
     waiting_for_time = State()
 
 
+class ViewDate(StatesGroup):
+    waiting_for_date = State()
+
+
 @dp.message(Command('start'))
 async def cmd_start(message: Message):
     await message.answer(
-        'Добро пожаловать! Выберите действие:',
+        messages.WELCOME,
         reply_markup=keyboards.main_kb,
     )
 
@@ -51,8 +57,14 @@ async def cmd_start(message: Message):
 @dp.message(Command('add'))
 @dp.message(F.text == '\u2795 Добавить смену')
 async def cmd_add(message: Message, state: FSMContext):
-    await message.answer('Выберите дату:', reply_markup=await cal.start_calendar())
+    await message.answer(messages.SELECT_DATE, reply_markup=await cal.start_calendar())
     await state.set_state(AddShift.waiting_for_date)
+
+
+@dp.message(F.text == '\U0001F4C5 Выбрать дату')
+async def cmd_pick_date(message: Message, state: FSMContext):
+    await message.answer(messages.SELECT_DATE, reply_markup=await cal.start_calendar())
+    await state.set_state(ViewDate.waiting_for_date)
 
 
 @dp.callback_query(simple_calendar.SimpleCalendarCallback.filter(), AddShift.waiting_for_date)
@@ -60,8 +72,62 @@ async def add_shift_pick_date(callback: CallbackQuery, callback_data: simple_cal
     selected, date = await cal.process_calendar(callback, callback_data)
     if selected:
         await state.update_data(date=date)
-        await callback.message.answer('Введите время как "HH:MM - HH:MM"', reply_markup=ReplyKeyboardRemove())
+        await callback.message.answer(messages.ENTER_TIME, reply_markup=ReplyKeyboardRemove())
         await state.set_state(AddShift.waiting_for_time)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith('del:'))
+async def delete_callback(callback: CallbackQuery):
+    shift_id = int(callback.data.split(':')[1])
+    success = db.delete_shift(shift_id, callback.from_user.id)
+    await callback.message.edit_text('Смена удалена.' if success else 'Не удалось удалить смену.')
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith('shift:'))
+async def show_shift(callback: CallbackQuery):
+    shift_id = int(callback.data.split(':')[1])
+    shift = db.get_shift(shift_id)
+    if not shift:
+        await callback.answer('Смена не найдена', show_alert=True)
+        return
+    text = format_shift_short(shift) + f"\nРазместил: {md_escape('@'+shift['username']) if shift['username'] else shift['user_id']}"
+    await callback.message.answer(
+        text,
+        reply_markup=keyboards.shift_detail_keyboard(shift['username'], shift_id),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith('offer:'))
+async def inline_offer(callback: CallbackQuery, state: FSMContext):
+    target_id = int(callback.data.split(':')[1])
+    target = db.get_shift(target_id)
+    dev = db.is_dev(callback.from_user.id)
+    if not target or target['status'] != 'active' or (target['user_id'] == callback.from_user.id and not dev):
+        await callback.answer('Эта смена недоступна для обмена.', show_alert=True)
+        return
+    await state.update_data(target_shift_id=target_id)
+    await callback.message.answer(messages.SELECT_DATE, reply_markup=await cal.start_calendar())
+    await state.set_state(OfferShift.waiting_for_date)
+    await callback.answer()
+
+
+@dp.callback_query(simple_calendar.SimpleCalendarCallback.filter(), ViewDate.waiting_for_date)
+async def view_date_pick(callback: CallbackQuery, callback_data: simple_calendar.SimpleCalendarCallback, state: FSMContext):
+    selected, date = await cal.process_calendar(callback, callback_data)
+    if selected:
+        shifts = db.list_shifts_by_date(date, callback.from_user.id, include_self=db.is_dev(callback.from_user.id))
+        if not shifts:
+            await callback.message.answer(messages.NO_SHIFTS)
+            await state.clear()
+        else:
+            await callback.message.answer(
+                f"Смены на {date.day} {MONTHS_LIST[date.month - 1]}:",
+                reply_markup=keyboards.shifts_keyboard(shifts, 'shift'),
+            )
+            await state.clear()
     await callback.answer()
 
 
@@ -79,7 +145,7 @@ async def process_add_shift(message: Message, state: FSMContext):
         return
     start, end = parsed
     shift_id = db.add_shift(message.from_user.id, message.from_user.username or '', start, end)
-    await message.answer(f'Смена сохранена с ID {shift_id}.', reply_markup=keyboards.main_kb)
+    await message.answer(f"{messages.SHIFT_SAVED} ID {shift_id}.", reply_markup=keyboards.main_kb)
     await state.clear()
 
 
@@ -89,7 +155,7 @@ async def cmd_list(message: Message):
     include_self = db.is_dev(message.from_user.id)
     shifts = db.list_active_shifts(message.from_user.id, include_self=include_self)
     if not shifts:
-        await message.answer('Нет доступных смен.')
+        await message.answer(messages.NO_SHIFTS)
         return
     text = '\n'.join(format_shift(s) for s in shifts)
     await message.answer(text)
@@ -100,7 +166,7 @@ async def cmd_list(message: Message):
 async def cmd_my(message: Message):
     shifts = db.list_user_shifts(message.from_user.id)
     if not shifts:
-        await message.answer('У вас нет смен.')
+        await message.answer(messages.MY_NO_SHIFTS)
         return
     text = '\n'.join(format_shift(s) for s in shifts)
     await message.answer(text)
@@ -108,21 +174,16 @@ async def cmd_my(message: Message):
 
 @dp.message(Command('cancel'))
 @dp.message(F.text == '\U0001F5D1 Удалить смену')
-async def cmd_cancel(message: Message, command: CommandObject):
-    if not command.args:
-        if message.text.startswith('\U0001F5D1'):
-            await message.answer('Используйте /cancel <id> для удаления смены.')
-        else:
-            await message.answer('Использование: /cancel <id>')
+async def cmd_cancel(message: Message, command: CommandObject, state: FSMContext):
+    if command.args and command.args.isdigit():
+        success = db.delete_shift(int(command.args), message.from_user.id)
+        await message.answer('Смена удалена.' if success else 'Не удалось удалить смену.')
         return
-    if not command.args.isdigit():
-        await message.answer('ID должен быть числом')
+    shifts = db.list_user_shifts(message.from_user.id)
+    if not shifts:
+        await message.answer(messages.MY_NO_SHIFTS)
         return
-    success = db.delete_shift(int(command.args), message.from_user.id)
-    if success:
-        await message.answer('Смена удалена.')
-    else:
-        await message.answer('Не удалось удалить смену.')
+    await message.answer(messages.CHOOSE_SHIFT_DELETE, reply_markup=keyboards.delete_shift_keyboard(shifts))
 
 
 @dp.message(Command('offer'))
@@ -137,7 +198,7 @@ async def cmd_offer(message: Message, command: CommandObject, state: FSMContext)
         await message.answer('Эта смена недоступна для обмена.')
         return
     await state.update_data(target_shift_id=target_id)
-    await message.answer('Выберите дату вашей смены:', reply_markup=await cal.start_calendar())
+    await message.answer(messages.SELECT_DATE, reply_markup=await cal.start_calendar())
     await state.set_state(OfferShift.waiting_for_date)
 
 
@@ -146,7 +207,7 @@ async def offer_pick_date(callback: CallbackQuery, callback_data: simple_calenda
     selected, date = await cal.process_calendar(callback, callback_data)
     if selected:
         await state.update_data(date=date)
-        await callback.message.answer('Введите время вашей смены "HH:MM - HH:MM"', reply_markup=ReplyKeyboardRemove())
+        await callback.message.answer(messages.ENTER_TIME, reply_markup=ReplyKeyboardRemove())
         await state.set_state(OfferShift.waiting_for_time)
     await callback.answer()
 
@@ -171,14 +232,15 @@ async def process_offer_shift(message: Message, state: FSMContext):
         await state.clear()
         return
     target = db.get_shift(target_id)
-    await message.answer('Предложение отправлено владельцу смены.')
+    await message.answer(messages.OFFER_SENT)
     await state.clear()
     if target:
         try:
+            shift_text = f"{start.day} {MONTHS_LIST[start.month-1]} {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
             await bot.send_message(
                 target['user_id'],
                 f"Пользователь @{message.from_user.username or message.from_user.id} предлагает обмен на вашу смену ID {target_id}.\n"
-                f"Его смена ID {offer_id}: {start.strftime('%d %B %H:%M')} - {end.strftime('%H:%M')}\n"
+                f"Его смена ID {offer_id}: {shift_text}\n"
                 f"Чтобы подтвердить, отправьте /approve {offer_id}"
             )
         except Exception as e:
@@ -196,9 +258,19 @@ async def cmd_approve(message: Message, command: CommandObject):
         await message.answer('Не удалось подтвердить предложение.')
         return
     offer, target = result
-    await message.answer('Обмен подтверждён!')
+    db.delete_shift_force(offer['id'])
+    db.delete_shift_force(target['id'])
+    link = messages.EXCHANGE_CONFIRMED.format(
+        user=markdown.link(md_escape(f"@{offer['username']}") if offer['username'] else md_escape(str(offer['user_id'])),
+                           f"https://t.me/{offer['username']}" if offer['username'] else f"tg://user?id={offer['user_id']}")
+    )
+    await message.answer(link)
     try:
-        await bot.send_message(offer['user_id'], f'Ваше предложение обмена подтверждено!')
+        other_link = markdown.link(
+            md_escape(f"@{message.from_user.username}") if message.from_user.username else md_escape(str(message.from_user.id)),
+            f"https://t.me/{message.from_user.username}" if message.from_user.username else f"tg://user?id={message.from_user.id}"
+        )
+        await bot.send_message(offer['user_id'], messages.EXCHANGE_CONFIRMED.format(user=other_link))
     except Exception as e:
         logging.error('Failed to notify user: %s', e)
 
