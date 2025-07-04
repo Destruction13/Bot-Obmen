@@ -14,7 +14,7 @@ from aiogram.utils import markdown
 import db
 from utils import format_shift, parse_time_range, format_shift_short, md_escape, MONTHS_LIST
 import keyboards
-import calendar as cal
+import rus_calendar as cal
 from aiogram_calendar import simple_calendar
 import messages
 
@@ -26,7 +26,7 @@ if not BOT_TOKEN:
     raise RuntimeError('BOT_TOKEN not set')
 DEV_ADMINS = {int(uid) for uid in os.getenv('DEV_ADMINS', '').split(',') if uid.isdigit()}
 
-bot = Bot(BOT_TOKEN, parse_mode='MarkdownV2')
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 db.init_db()
