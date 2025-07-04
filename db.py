@@ -11,6 +11,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    """Initialize SQLite tables for shifts and dev mode."""
     with get_connection() as conn:
         conn.execute(
             '''CREATE TABLE IF NOT EXISTS shifts (
@@ -22,6 +23,12 @@ def init_db() -> None:
                    status TEXT NOT NULL,
                    offered_to_user_id INTEGER,
                    offered_by_user_id INTEGER
+               )'''
+        )
+        conn.execute(
+            '''CREATE TABLE IF NOT EXISTS dev_flags (
+                   user_id INTEGER PRIMARY KEY,
+                   is_dev INTEGER NOT NULL
                )'''
         )
         conn.commit()
@@ -38,12 +45,16 @@ def add_shift(user_id: int, username: str, start: datetime, end: datetime, statu
         return cur.lastrowid
 
 
-def list_active_shifts(exclude_user_id: int) -> List[Dict[str, Any]]:
+def list_active_shifts(user_id: int, include_self: bool = False) -> List[Dict[str, Any]]:
+    """Return active shifts. If include_self is False, exclude user's own shifts."""
+    query = 'SELECT * FROM shifts WHERE status = "active"'
+    params: Tuple[Any, ...] = ()
+    if not include_self:
+        query += ' AND user_id != ?'
+        params = (user_id,)
+    query += ' ORDER BY start_time'
     with get_connection() as conn:
-        cur = conn.execute(
-            'SELECT * FROM shifts WHERE status = "active" AND user_id != ? ORDER BY start_time',
-            (exclude_user_id,)
-        )
+        cur = conn.execute(query, params)
         columns = [c[0] for c in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
@@ -105,3 +116,22 @@ def approve_offer(offer_shift_id: int, approver_user_id: int) -> Optional[Tuple[
         conn.execute('UPDATE shifts SET status = "confirmed" WHERE id IN (?, ?)', (offer_shift_id, target['id']))
         conn.commit()
     return offer, target
+
+
+def set_dev_mode(user_id: int, enabled: bool) -> None:
+    """Enable or disable developer mode for given user."""
+    with get_connection() as conn:
+        conn.execute(
+            'INSERT INTO dev_flags (user_id, is_dev) VALUES (?, ?) '
+            'ON CONFLICT(user_id) DO UPDATE SET is_dev=excluded.is_dev',
+            (user_id, int(enabled))
+        )
+        conn.commit()
+
+
+def is_dev(user_id: int) -> bool:
+    """Return True if user is in developer mode."""
+    with get_connection() as conn:
+        cur = conn.execute('SELECT is_dev FROM dev_flags WHERE user_id = ?', (user_id,))
+        row = cur.fetchone()
+        return bool(row[0]) if row else False
