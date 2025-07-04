@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from typing import Optional, Tuple
+from aiogram.utils.text_decorations import markdown_decoration as md
 
 MONTHS = {
     'января': 1,
@@ -16,6 +17,21 @@ MONTHS = {
     'ноября': 11,
     'декабря': 12,
 }
+
+MONTHS_LIST = [
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+]
 
 SHIFT_RE = re.compile(
     r"(?P<day>\d{1,2})\s+(?P<month>[а-яА-Я]+)(?:\s+(?P<year>\d{4}))?,\s*(?P<start>\d{1,2}:\d{2})\s*[\-\u2013\u2014]\s*(?P<end>\d{1,2}:\d{2})"
@@ -45,11 +61,30 @@ def parse_shift(text: str) -> Optional[Tuple[datetime, datetime]]:
     return start, end
 
 
+STATUS_TEXT = {
+    'active': '🟢 Активна',
+    'offered': '🔁 Предложена',
+    'confirmed': '✅ Подтверждена',
+}
+
+
 def format_shift(row: dict) -> str:
     start = datetime.fromisoformat(row['start_time'])
     end = datetime.fromisoformat(row['end_time'])
-    return (f"ID {row['id']}: {start.strftime('%d %B %H:%M')} - "
-            f"{end.strftime('%H:%M')} (\u2116{row['user_id']}) status: {row['status']}")
+    status = STATUS_TEXT.get(row['status'], row['status'])
+    return (
+        f"{row['id']}: {start.day} {MONTHS_LIST[start.month - 1]}, "
+        f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')} {status}"
+    )
+
+
+def format_shift_short(row: dict) -> str:
+    start = datetime.fromisoformat(row['start_time'])
+    end = datetime.fromisoformat(row['end_time'])
+    return (
+        f"{start.day} {MONTHS_LIST[start.month - 1]}, "
+        f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+    )
 
 
 TIME_RE = re.compile(r"(?P<start>\d{1,2}:\d{2})\s*[\-\u2013\u2014]\s*(?P<end>\d{1,2}:\d{2})")
@@ -70,3 +105,8 @@ def parse_time_range(text: str, date: datetime) -> Optional[Tuple[datetime, date
     if end <= start:
         return None
     return start, end
+
+
+def md_escape(text: str) -> str:
+    """Escape string for MarkdownV2."""
+    return md.quote(text)

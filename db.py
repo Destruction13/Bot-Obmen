@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, List, Optional, Tuple, Dict
 import logging
 
@@ -66,6 +66,25 @@ def list_user_shifts(user_id: int) -> List[Dict[str, Any]]:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
+def list_shifts_by_date(date: datetime, user_id: int, include_self: bool = False) -> List[Dict[str, Any]]:
+    """Return active shifts for a specific date."""
+    start_day = datetime(date.year, date.month, date.day)
+    end_day = start_day + timedelta(days=1)
+    query = (
+        'SELECT * FROM shifts WHERE status = "active" '
+        'AND start_time >= ? AND start_time < ?'
+    )
+    params: Tuple[Any, ...] = (start_day.isoformat(), end_day.isoformat())
+    if not include_self:
+        query += ' AND user_id != ?'
+        params += (user_id,)
+    query += ' ORDER BY start_time'
+    with get_connection() as conn:
+        cur = conn.execute(query, params)
+        columns = [c[0] for c in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
 def get_shift(shift_id: int) -> Optional[Dict[str, Any]]:
     with get_connection() as conn:
         cur = conn.execute('SELECT * FROM shifts WHERE id = ?', (shift_id,))
@@ -81,6 +100,13 @@ def delete_shift(shift_id: int, user_id: int) -> bool:
         cur = conn.execute('DELETE FROM shifts WHERE id = ? AND user_id = ?', (shift_id, user_id))
         conn.commit()
         return cur.rowcount > 0
+
+
+def delete_shift_force(shift_id: int) -> None:
+    """Delete shift without owner check."""
+    with get_connection() as conn:
+        conn.execute('DELETE FROM shifts WHERE id = ?', (shift_id,))
+        conn.commit()
 
 
 def offer_shift(target_shift_id: int, offered_user_id: int, offered_username: str, start: datetime, end: datetime) -> Optional[int]:
