@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
@@ -8,7 +7,6 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from dotenv import load_dotenv
 from aiogram.utils import markdown
 
 import db
@@ -19,12 +17,9 @@ from aiogram_calendar import simple_calendar
 import messages
 
 logging.basicConfig(level=logging.INFO)
-load_dotenv()
 
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-if not BOT_TOKEN:
-    raise RuntimeError('BOT_TOKEN not set')
-DEV_ADMINS = {int(uid) for uid in os.getenv('DEV_ADMINS', '').split(',') if uid.isdigit()}
+# Токен бота хранится напрямую в коде. Не использовать env для простоты демонстрации.
+BOT_TOKEN = "7355813660:AAFE6dOJMaHuCMVCRXC6M8gen4ZlamnbZmM"
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
@@ -61,7 +56,7 @@ async def cmd_add(message: Message, state: FSMContext):
     await state.set_state(AddShift.waiting_for_date)
 
 
-@dp.message(F.text == '\U0001F4C5 Выбрать дату')
+@dp.message(F.text == '\U0001F4C5 Доступные смены')
 async def cmd_pick_date(message: Message, state: FSMContext):
     await message.answer(messages.SELECT_DATE, reply_markup=await cal.start_calendar())
     await state.set_state(ViewDate.waiting_for_date)
@@ -79,9 +74,11 @@ async def add_shift_pick_date(callback: CallbackQuery, callback_data: simple_cal
 
 @dp.callback_query(F.data.startswith('del:'))
 async def delete_callback(callback: CallbackQuery):
+    """Handle shift deletion from inline keyboard."""
     shift_id = int(callback.data.split(':')[1])
     success = db.delete_shift(shift_id, callback.from_user.id)
-    await callback.message.edit_text('Смена удалена.' if success else 'Не удалось удалить смену.')
+    text = 'Смена удалена ✅' if success else 'Не удалось удалить смену.'
+    await callback.message.edit_text(text)
     await callback.answer()
 
 
@@ -150,7 +147,6 @@ async def process_add_shift(message: Message, state: FSMContext):
 
 
 @dp.message(Command('list'))
-@dp.message(F.text == '\U0001F4C4 Доступные смены')
 async def cmd_list(message: Message):
     include_self = db.is_dev(message.from_user.id)
     shifts = db.list_active_shifts(message.from_user.id, include_self=include_self)
@@ -177,7 +173,7 @@ async def cmd_my(message: Message):
 async def cmd_cancel(message: Message, command: CommandObject, state: FSMContext):
     if command.args and command.args.isdigit():
         success = db.delete_shift(int(command.args), message.from_user.id)
-        await message.answer('Смена удалена.' if success else 'Не удалось удалить смену.')
+        await message.answer('Смена удалена ✅' if success else 'Не удалось удалить смену.')
         return
     shifts = db.list_user_shifts(message.from_user.id)
     if not shifts:
@@ -275,27 +271,21 @@ async def cmd_approve(message: Message, command: CommandObject):
         logging.error('Failed to notify user: %s', e)
 
 
-@dp.message(Command('dev_on'))
-async def cmd_dev_on(message: Message):
-    if message.from_user.id not in DEV_ADMINS:
-        await message.answer('Недостаточно прав.')
-        return
-    db.set_dev_mode(message.from_user.id, True)
-    await message.answer('Режим разработчика включён.')
-
-
-@dp.message(Command('dev_off'))
-async def cmd_dev_off(message: Message):
-    if message.from_user.id not in DEV_ADMINS:
-        await message.answer('Недостаточно прав.')
-        return
-    db.set_dev_mode(message.from_user.id, False)
-    await message.answer('Режим разработчика выключен.')
+@dp.message(Command('developer'))
+async def cmd_developer(message: Message):
+    """Toggle developer mode for current user."""
+    enabled = not db.is_dev(message.from_user.id)
+    db.set_dev_mode(message.from_user.id, enabled)
+    await message.answer(
+        'Режим разработчика ' + ('включён.' if enabled else 'выключен.')
+    )
 
 
 @dp.message(Command('dev_status'))
 async def cmd_dev_status(message: Message):
-    await message.answer('Dev mode: ' + ('on' if db.is_dev(message.from_user.id) else 'off'))
+    await message.answer(
+        'Режим разработчика: ' + ('on' if db.is_dev(message.from_user.id) else 'off')
+    )
 
 
 async def main() -> None:
