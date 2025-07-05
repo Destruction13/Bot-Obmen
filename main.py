@@ -10,7 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils import markdown
 
 import db
-from utils import format_shift, parse_time_range, format_shift_short, md_escape, MONTHS_LIST
+from utils import format_shift, parse_time_range, format_shift_short, escape_md, MONTHS_LIST
 import activity_log
 import keyboards
 import rus_calendar as cal
@@ -96,7 +96,7 @@ async def show_shift(callback: CallbackQuery):
     if not shift:
         await callback.answer('Смена не найдена', show_alert=True)
         return
-    text = format_shift_short(shift) + f"\nРазместил: {md_escape('@'+shift['username']) if shift['username'] else shift['user_id']}"
+    text = format_shift_short(shift) + f"\nРазместил: {escape_md('@'+shift['username']) if shift['username'] else shift['user_id']}"
     await callback.message.answer(
         text,
         reply_markup=keyboards.shift_detail_keyboard(shift['username'], shift_id),
@@ -341,7 +341,7 @@ async def cmd_approve(message: Message, command: CommandObject):
     target_text = f"{target_start.strftime('%H:%M')} — {target_end.strftime('%H:%M')}"
     offer_text = f"{offer_start.strftime('%H:%M')} — {offer_end.strftime('%H:%M')}"
     other_chat = await bot.get_chat(offer['user_id'])
-    other_link = markdown.link(md_escape(other_chat.full_name),
+    other_link = markdown.link(escape_md(other_chat.full_name),
                                f"https://t.me/{other_chat.username}" if other_chat.username else f"tg://user?id={other_chat.id}")
     await message.answer(
         messages.EXCHANGE_CONFIRMED.format(
@@ -354,7 +354,7 @@ async def cmd_approve(message: Message, command: CommandObject):
     )
     try:
         approver_chat = await bot.get_chat(message.from_user.id)
-        approver_link = markdown.link(md_escape(approver_chat.full_name),
+        approver_link = markdown.link(escape_md(approver_chat.full_name),
                                       f"https://t.me/{approver_chat.username}" if approver_chat.username else f"tg://user?id={approver_chat.id}")
         await bot.send_message(
             offer['user_id'],
@@ -396,7 +396,7 @@ async def approve_callback(callback: CallbackQuery):
     target_text = f"{target_start.strftime('%H:%M')} — {target_end.strftime('%H:%M')}"
     offer_text = f"{offer_start.strftime('%H:%M')} — {offer_end.strftime('%H:%M')}"
     other_chat = await bot.get_chat(offer['user_id'])
-    other_link = markdown.link(md_escape(other_chat.full_name),
+    other_link = markdown.link(escape_md(other_chat.full_name),
                                f"https://t.me/{other_chat.username}" if other_chat.username else f"tg://user?id={other_chat.id}")
     await callback.message.edit_text(
         messages.EXCHANGE_CONFIRMED.format(
@@ -409,7 +409,7 @@ async def approve_callback(callback: CallbackQuery):
     )
     try:
         approver_chat = await bot.get_chat(callback.from_user.id)
-        approver_link = markdown.link(md_escape(approver_chat.full_name),
+        approver_link = markdown.link(escape_md(approver_chat.full_name),
                                       f"https://t.me/{approver_chat.username}" if approver_chat.username else f"tg://user?id={approver_chat.id}")
         await bot.send_message(
             offer['user_id'],
