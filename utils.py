@@ -87,6 +87,13 @@ def format_shift_short(row: dict) -> str:
     )
 
 
+def format_shift_time(row: dict) -> str:
+    """Return only time range from shift row."""
+    start = datetime.fromisoformat(row['start_time'])
+    end = datetime.fromisoformat(row['end_time'])
+    return f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+
+
 TIME_RE = re.compile(r"(?P<start>\d{1,2}:\d{2})\s*[\-\u2013\u2014]\s*(?P<end>\d{1,2}:\d{2})")
 
 
