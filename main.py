@@ -100,6 +100,7 @@ async def show_shift(callback: CallbackQuery):
     await callback.message.answer(
         text,
         reply_markup=keyboards.shift_detail_keyboard(shift['username'], shift_id),
+        parse_mode='MarkdownV2',
     )
     await callback.answer()
 
@@ -348,7 +349,8 @@ async def cmd_approve(message: Message, command: CommandObject):
             date=date_text,
             target=target_text,
             offer=offer_text,
-        )
+        ),
+        parse_mode='MarkdownV2',
     )
     try:
         approver_chat = await bot.get_chat(message.from_user.id)
@@ -362,6 +364,7 @@ async def cmd_approve(message: Message, command: CommandObject):
                 target=offer_text,
                 offer=target_text,
             ),
+            parse_mode='MarkdownV2',
         )
     except Exception as e:
         logging.error('Failed to notify user: %s', e)
@@ -401,7 +404,8 @@ async def approve_callback(callback: CallbackQuery):
             date=date_text,
             target=target_text,
             offer=offer_text,
-        )
+        ),
+        parse_mode='MarkdownV2',
     )
     try:
         approver_chat = await bot.get_chat(callback.from_user.id)
@@ -415,6 +419,7 @@ async def approve_callback(callback: CallbackQuery):
                 target=offer_text,
                 offer=target_text,
             ),
+            parse_mode='MarkdownV2',
         )
     except Exception as e:
         logging.error('Failed to notify user: %s', e)
