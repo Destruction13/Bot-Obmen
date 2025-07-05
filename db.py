@@ -158,6 +158,30 @@ def approve_offer(offer_shift_id: int, approver_user_id: int) -> Optional[Tuple[
     return offer, target
 
 
+def decline_offer(offer_shift_id: int, decliner_user_id: int) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Decline an offer and restore the original shift."""
+    offer = get_shift(offer_shift_id)
+    if not offer or offer['status'] != 'offered' or offer['offered_to_user_id'] != decliner_user_id:
+        return None
+    with get_connection() as conn:
+        cur = conn.execute(
+            'SELECT * FROM shifts WHERE user_id = ? AND offered_by_user_id = ? AND status = "offered"',
+            (decliner_user_id, offer['offered_by_user_id'])
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        columns = [c[0] for c in cur.description]
+        target = dict(zip(columns, row))
+        conn.execute(
+            'UPDATE shifts SET status = "active", offered_to_user_id = NULL, offered_by_user_id = NULL WHERE id = ?',
+            (target['id'],)
+        )
+        conn.execute('DELETE FROM shifts WHERE id = ?', (offer_shift_id,))
+        conn.commit()
+    return offer, target
+
+
 def set_dev_mode(user_id: int, enabled: bool) -> None:
     """Enable or disable developer mode for given user."""
     with get_connection() as conn:
