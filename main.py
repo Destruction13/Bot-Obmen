@@ -35,6 +35,7 @@ class AddShift(StatesGroup):
 class OfferShift(StatesGroup):
     waiting_for_date = State()
     waiting_for_time = State()
+    choosing_my_shift = State()
 
 
 class ViewDate(StatesGroup):
@@ -105,9 +106,63 @@ async def inline_offer(callback: CallbackQuery, state: FSMContext):
     if not target or target['status'] != 'active' or (target['user_id'] == callback.from_user.id and not dev):
         await callback.answer('Эта смена недоступна для обмена.', show_alert=True)
         return
-    await state.update_data(target_shift_id=target_id)
-    await callback.message.answer(messages.SELECT_DATE, reply_markup=await cal.start_calendar())
-    await state.set_state(OfferShift.waiting_for_date)
+    date = datetime.fromisoformat(target['start_time'])
+    await state.update_data(target_shift_id=target_id, date=date)
+    my_shifts = db.get_user_shifts_by_date(callback.from_user.id, date)
+    if my_shifts:
+        await callback.message.answer(
+            messages.CHOOSE_MY_SHIFT,
+            reply_markup=keyboards.my_shifts_keyboard(my_shifts),
+        )
+        await state.set_state(OfferShift.choosing_my_shift)
+    else:
+        await callback.message.answer(messages.NO_MY_SHIFT_ON_DATE)
+        await state.set_state(OfferShift.waiting_for_time)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith('myshift:'), OfferShift.choosing_my_shift)
+async def choose_my_shift(callback: CallbackQuery, state: FSMContext):
+    my_id = int(callback.data.split(':')[1])
+    data = await state.get_data()
+    target_id = data.get('target_shift_id')
+    if not target_id:
+        await callback.answer('Ошибка состояния', show_alert=True)
+        await state.clear()
+        return
+    my_shift = db.get_shift(my_id)
+    if not my_shift or my_shift['user_id'] != callback.from_user.id:
+        await callback.answer('Смена не найдена', show_alert=True)
+        await state.clear()
+        return
+    start = datetime.fromisoformat(my_shift['start_time'])
+    end = datetime.fromisoformat(my_shift['end_time'])
+    offer_id = db.offer_shift(
+        target_id,
+        callback.from_user.id,
+        callback.from_user.username or '',
+        start,
+        end,
+    )
+    if not offer_id:
+        await callback.message.answer('Не удалось создать предложение. Возможно, смена уже занята.')
+        await state.clear()
+        await callback.answer()
+        return
+    target = db.get_shift(target_id)
+    await callback.message.answer(messages.OFFER_SENT)
+    await state.clear()
+    if target:
+        try:
+            shift_text = f"{start.day} {MONTHS_LIST[start.month-1]} {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+            await bot.send_message(
+                target['user_id'],
+                f"Пользователь @{callback.from_user.username or callback.from_user.id} предлагает обмен на вашу смену ID {target_id}.\n"
+                f"Его смена ID {offer_id}: {shift_text}\n"
+                f"Чтобы подтвердить, отправьте /approve {offer_id}"
+            )
+        except Exception as e:
+            logging.error('Failed to send offer message: %s', e)
     await callback.answer()
 
 
@@ -138,7 +193,7 @@ async def process_add_shift(message: Message, state: FSMContext):
         return
     parsed = parse_time_range(message.text, date)
     if not parsed:
-        await message.answer('Неверный формат времени. Используйте "HH:MM - HH:MM"')
+        await message.answer(messages.TIME_FORMAT_ERROR)
         return
     start, end = parsed
     shift_id = db.add_shift(message.from_user.id, message.from_user.username or '', start, end)
@@ -170,8 +225,8 @@ async def cmd_my(message: Message):
 
 @dp.message(Command('cancel'))
 @dp.message(F.text == '\U0001F5D1 Удалить смену')
-async def cmd_cancel(message: Message, command: CommandObject, state: FSMContext):
-    if command.args and command.args.isdigit():
+async def cmd_cancel(message: Message, state: FSMContext, command: CommandObject | None = None):
+    if command and command.args and command.args.isdigit():
         success = db.delete_shift(int(command.args), message.from_user.id)
         await message.answer('Смена удалена ✅' if success else 'Не удалось удалить смену.')
         return
@@ -219,7 +274,7 @@ async def process_offer_shift(message: Message, state: FSMContext):
         return
     parsed = parse_time_range(message.text, date)
     if not parsed:
-        await message.answer('Неверный формат времени. Используйте "HH:MM - HH:MM"')
+        await message.answer(messages.TIME_FORMAT_ERROR)
         return
     start, end = parsed
     offer_id = db.offer_shift(target_id, message.from_user.id, message.from_user.username or '', start, end)

@@ -12,7 +12,7 @@ main_kb = ReplyKeyboardMarkup(
 
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from utils import format_shift, format_shift_short
+from utils import format_shift, format_shift_short, format_shift_time
 
 
 def shifts_keyboard(shifts, prefix: str) -> InlineKeyboardMarkup:
@@ -38,6 +38,15 @@ def delete_shift_keyboard(shifts) -> InlineKeyboardMarkup:
     """Keyboard for deleting user's shifts."""
     buttons = [
         [InlineKeyboardButton(text=format_shift_short(s), callback_data=f"del:{s['id']}")]
+        for s in shifts
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def my_shifts_keyboard(shifts) -> InlineKeyboardMarkup:
+    """Keyboard for selecting user's shift for offer."""
+    buttons = [
+        [InlineKeyboardButton(text=format_shift_time(s), callback_data=f"myshift:{s['id']}")]
         for s in shifts
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

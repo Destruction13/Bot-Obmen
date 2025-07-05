@@ -66,6 +66,20 @@ def list_user_shifts(user_id: int) -> List[Dict[str, Any]]:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
+def get_user_shifts_by_date(user_id: int, date: datetime) -> List[Dict[str, Any]]:
+    """Return user's active shifts for the given date."""
+    start_day = datetime(date.year, date.month, date.day)
+    end_day = start_day + timedelta(days=1)
+    with get_connection() as conn:
+        cur = conn.execute(
+            'SELECT * FROM shifts WHERE user_id = ? AND status = "active" '
+            'AND start_time >= ? AND start_time < ? ORDER BY start_time',
+            (user_id, start_day.isoformat(), end_day.isoformat()),
+        )
+        columns = [c[0] for c in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
 def list_shifts_by_date(date: datetime, user_id: int, include_self: bool = False) -> List[Dict[str, Any]]:
     """Return active shifts for a specific date."""
     start_day = datetime(date.year, date.month, date.day)
