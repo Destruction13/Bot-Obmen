@@ -1,7 +1,6 @@
 import re
 from datetime import datetime
 from typing import Optional, Tuple
-from aiogram.utils.text_decorations import markdown_decoration as md
 
 MONTHS = {
     'января': 1,
@@ -114,6 +113,7 @@ def parse_time_range(text: str, date: datetime) -> Optional[Tuple[datetime, date
     return start, end
 
 
-def md_escape(text: str) -> str:
-    """Escape string for MarkdownV2."""
-    return md.quote(text)
+def escape_md(text: str) -> str:
+    """Escape text for MarkdownV2."""
+    escape_chars = r"_*[]()~`>#+-=|{}.!"
+    return re.sub(rf"([{re.escape(escape_chars)}])", r"\\\1", text)

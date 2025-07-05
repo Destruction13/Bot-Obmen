@@ -50,3 +50,12 @@ def my_shifts_keyboard(shifts) -> InlineKeyboardMarkup:
         for s in shifts
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def offer_action_keyboard(offer_id: int) -> InlineKeyboardMarkup:
+    """Keyboard with approve/decline buttons for an offer."""
+    buttons = [[
+        InlineKeyboardButton(text="✅ Принять обмен", callback_data=f"approve:{offer_id}"),
+        InlineKeyboardButton(text="❌ Отклонить обмен", callback_data=f"decline:{offer_id}")
+    ]]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
