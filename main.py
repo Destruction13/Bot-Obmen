@@ -225,8 +225,8 @@ async def cmd_my(message: Message):
 
 @dp.message(Command('cancel'))
 @dp.message(F.text == '\U0001F5D1 Удалить смену')
-async def cmd_cancel(message: Message, command: CommandObject, state: FSMContext):
-    if command.args and command.args.isdigit():
+async def cmd_cancel(message: Message, state: FSMContext, command: CommandObject | None = None):
+    if command and command.args and command.args.isdigit():
         success = db.delete_shift(int(command.args), message.from_user.id)
         await message.answer('Смена удалена ✅' if success else 'Не удалось удалить смену.')
         return
