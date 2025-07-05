@@ -11,6 +11,7 @@ from aiogram.utils import markdown
 
 import db
 from utils import format_shift, parse_time_range, format_shift_short, md_escape, MONTHS_LIST
+import activity_log
 import keyboards
 import rus_calendar as cal
 from aiogram_calendar import simple_calendar
@@ -48,6 +49,11 @@ async def cmd_start(message: Message):
         messages.WELCOME,
         reply_markup=keyboards.main_kb,
     )
+
+
+@dp.message(Command('help'))
+async def cmd_help(message: Message):
+    await message.answer(messages.HELP, reply_markup=keyboards.main_kb)
 
 
 @dp.message(Command('add'))
@@ -154,12 +160,17 @@ async def choose_my_shift(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     if target:
         try:
-            shift_text = f"{start.day} {MONTHS_LIST[start.month-1]} {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+            target_start = datetime.fromisoformat(target['start_time'])
+            target_end = datetime.fromisoformat(target['end_time'])
+            date_text = f"{target_start.day} {MONTHS_LIST[target_start.month-1]}"
+            offer_time = f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+            target_time = f"{target_start.strftime('%H:%M')} — {target_end.strftime('%H:%M')}"
             await bot.send_message(
                 target['user_id'],
-                f"Пользователь @{callback.from_user.username or callback.from_user.id} предлагает обмен на вашу смену ID {target_id}.\n"
-                f"Его смена ID {offer_id}: {shift_text}\n"
-                f"Чтобы подтвердить, отправьте /approve {offer_id}"
+                f"{callback.from_user.full_name} предлагает обменяться сменами на {date_text}:\n"
+                f"Его смена {offer_time} в обмен на твою {target_time}.\n"
+                "Подтверди или отклони обмен",
+                reply_markup=keyboards.offer_action_keyboard(offer_id),
             )
         except Exception as e:
             logging.error('Failed to send offer message: %s', e)
@@ -196,8 +207,13 @@ async def process_add_shift(message: Message, state: FSMContext):
         await message.answer(messages.TIME_FORMAT_ERROR)
         return
     start, end = parsed
-    shift_id = db.add_shift(message.from_user.id, message.from_user.username or '', start, end)
-    await message.answer(f"{messages.SHIFT_SAVED} ID {shift_id}.", reply_markup=keyboards.main_kb)
+    db.add_shift(message.from_user.id, message.from_user.username or '', start, end)
+    activity_log.log_new_shift(message.from_user.full_name, start, end)
+    shift_text = f"{start.day} {MONTHS_LIST[start.month-1]}, {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+    await message.answer(
+        messages.SHIFT_POSTED.format(shift=shift_text),
+        reply_markup=keyboards.main_kb,
+    )
     await state.clear()
 
 
@@ -287,12 +303,17 @@ async def process_offer_shift(message: Message, state: FSMContext):
     await state.clear()
     if target:
         try:
-            shift_text = f"{start.day} {MONTHS_LIST[start.month-1]} {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+            target_start = datetime.fromisoformat(target['start_time'])
+            target_end = datetime.fromisoformat(target['end_time'])
+            date_text = f"{target_start.day} {MONTHS_LIST[target_start.month-1]}"
+            offer_time = f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+            target_time = f"{target_start.strftime('%H:%M')} — {target_end.strftime('%H:%M')}"
             await bot.send_message(
                 target['user_id'],
-                f"Пользователь @{message.from_user.username or message.from_user.id} предлагает обмен на вашу смену ID {target_id}.\n"
-                f"Его смена ID {offer_id}: {shift_text}\n"
-                f"Чтобы подтвердить, отправьте /approve {offer_id}"
+                f"{message.from_user.full_name} предлагает обменяться сменами на {date_text}:\n"
+                f"Его смена {offer_time} в обмен на твою {target_time}.\n"
+                "Подтверди или отклони обмен",
+                reply_markup=keyboards.offer_action_keyboard(offer_id),
             )
         except Exception as e:
             logging.error('Failed to send offer message: %s', e)
@@ -311,19 +332,132 @@ async def cmd_approve(message: Message, command: CommandObject):
     offer, target = result
     db.delete_shift_force(offer['id'])
     db.delete_shift_force(target['id'])
-    link = messages.EXCHANGE_CONFIRMED.format(
-        user=markdown.link(md_escape(f"@{offer['username']}") if offer['username'] else md_escape(str(offer['user_id'])),
-                           f"https://t.me/{offer['username']}" if offer['username'] else f"tg://user?id={offer['user_id']}")
-    )
-    await message.answer(link)
-    try:
-        other_link = markdown.link(
-            md_escape(f"@{message.from_user.username}") if message.from_user.username else md_escape(str(message.from_user.id)),
-            f"https://t.me/{message.from_user.username}" if message.from_user.username else f"tg://user?id={message.from_user.id}"
+    offer_start = datetime.fromisoformat(offer['start_time'])
+    offer_end = datetime.fromisoformat(offer['end_time'])
+    target_start = datetime.fromisoformat(target['start_time'])
+    target_end = datetime.fromisoformat(target['end_time'])
+    date_text = f"{target_start.day} {MONTHS_LIST[target_start.month-1]}"
+    target_text = f"{target_start.strftime('%H:%M')} — {target_end.strftime('%H:%M')}"
+    offer_text = f"{offer_start.strftime('%H:%M')} — {offer_end.strftime('%H:%M')}"
+    other_chat = await bot.get_chat(offer['user_id'])
+    other_link = markdown.link(md_escape(other_chat.full_name),
+                               f"https://t.me/{other_chat.username}" if other_chat.username else f"tg://user?id={other_chat.id}")
+    await message.answer(
+        messages.EXCHANGE_CONFIRMED.format(
+            name=other_link,
+            date=date_text,
+            target=target_text,
+            offer=offer_text,
         )
-        await bot.send_message(offer['user_id'], messages.EXCHANGE_CONFIRMED.format(user=other_link))
+    )
+    try:
+        approver_chat = await bot.get_chat(message.from_user.id)
+        approver_link = markdown.link(md_escape(approver_chat.full_name),
+                                      f"https://t.me/{approver_chat.username}" if approver_chat.username else f"tg://user?id={approver_chat.id}")
+        await bot.send_message(
+            offer['user_id'],
+            messages.EXCHANGE_CONFIRMED.format(
+                name=approver_link,
+                date=date_text,
+                target=offer_text,
+                offer=target_text,
+            ),
+        )
     except Exception as e:
         logging.error('Failed to notify user: %s', e)
+    activity_log.log_exchange(
+        message.from_user.full_name,
+        other_chat.full_name,
+        target_start,
+        target_end,
+        offer_start,
+        offer_end,
+    )
+
+
+@dp.callback_query(F.data.startswith('approve:'))
+async def approve_callback(callback: CallbackQuery):
+    offer_id = int(callback.data.split(':')[1])
+    result = db.approve_offer(offer_id, callback.from_user.id)
+    if not result:
+        await callback.answer('Не удалось подтвердить предложение.', show_alert=True)
+        return
+    offer, target = result
+    db.delete_shift_force(offer['id'])
+    db.delete_shift_force(target['id'])
+    offer_start = datetime.fromisoformat(offer['start_time'])
+    offer_end = datetime.fromisoformat(offer['end_time'])
+    target_start = datetime.fromisoformat(target['start_time'])
+    target_end = datetime.fromisoformat(target['end_time'])
+    date_text = f"{target_start.day} {MONTHS_LIST[target_start.month-1]}"
+    target_text = f"{target_start.strftime('%H:%M')} — {target_end.strftime('%H:%M')}"
+    offer_text = f"{offer_start.strftime('%H:%M')} — {offer_end.strftime('%H:%M')}"
+    other_chat = await bot.get_chat(offer['user_id'])
+    other_link = markdown.link(md_escape(other_chat.full_name),
+                               f"https://t.me/{other_chat.username}" if other_chat.username else f"tg://user?id={other_chat.id}")
+    await callback.message.edit_text(
+        messages.EXCHANGE_CONFIRMED.format(
+            name=other_link,
+            date=date_text,
+            target=target_text,
+            offer=offer_text,
+        )
+    )
+    try:
+        approver_chat = await bot.get_chat(callback.from_user.id)
+        approver_link = markdown.link(md_escape(approver_chat.full_name),
+                                      f"https://t.me/{approver_chat.username}" if approver_chat.username else f"tg://user?id={approver_chat.id}")
+        await bot.send_message(
+            offer['user_id'],
+            messages.EXCHANGE_CONFIRMED.format(
+                name=approver_link,
+                date=date_text,
+                target=offer_text,
+                offer=target_text,
+            ),
+        )
+    except Exception as e:
+        logging.error('Failed to notify user: %s', e)
+    activity_log.log_exchange(
+        callback.from_user.full_name,
+        other_chat.full_name,
+        target_start,
+        target_end,
+        offer_start,
+        offer_end,
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith('decline:'))
+async def decline_callback(callback: CallbackQuery):
+    offer_id = int(callback.data.split(':')[1])
+    result = db.decline_offer(offer_id, callback.from_user.id)
+    if not result:
+        await callback.answer('Не удалось отклонить предложение.', show_alert=True)
+        return
+    offer, target = result
+    offer_start = datetime.fromisoformat(offer['start_time'])
+    offer_end = datetime.fromisoformat(offer['end_time'])
+    target_start = datetime.fromisoformat(target['start_time'])
+    target_end = datetime.fromisoformat(target['end_time'])
+    date_text = f"{target_start.day} {MONTHS_LIST[target_start.month-1]}"
+    offer_text = f"{offer_start.strftime('%H:%M')} — {offer_end.strftime('%H:%M')}"
+    target_text = f"{target_start.strftime('%H:%M')} — {target_end.strftime('%H:%M')}"
+    try:
+        await bot.send_message(
+            offer['user_id'],
+            messages.OFFER_DECLINED.format(
+                name=callback.from_user.full_name,
+                date=date_text,
+                target=offer_text,
+                offer=target_text,
+            ),
+        )
+    except Exception as e:
+        logging.error('Failed to notify user: %s', e)
+    await callback.message.edit_text('Предложение отклонено.')
+    await callback.answer()
 
 
 @dp.message(Command('developer'))
@@ -341,6 +475,12 @@ async def cmd_dev_status(message: Message):
     await message.answer(
         'Режим разработчика: ' + ('on' if db.is_dev(message.from_user.id) else 'off')
     )
+
+
+@dp.message()
+async def unknown_message(message: Message):
+    """Handle unknown commands and texts."""
+    await message.answer(messages.UNKNOWN_COMMAND, reply_markup=keyboards.main_kb)
 
 
 async def main() -> None:
