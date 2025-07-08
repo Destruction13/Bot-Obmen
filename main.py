@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, ErrorEvent
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -105,12 +105,11 @@ async def show_shift(callback: CallbackQuery):
         await callback.answer('Смена не найдена', show_alert=True)
         return
     pref = shift.get('desired')
-    pref_text = ''
+    text = format_shift_short(shift) + f"\nРазместил: {escape_md('@'+shift['username']) if shift['username'] else shift['user_id']}"
     if pref == 'earlier':
-        pref_text = '\nХочет смену раньше'
+        text += '\nХочет смену раньше'
     elif pref == 'later':
-        pref_text = '\nХочет смену позже'
-    text = format_shift_short(shift) + pref_text + f"\nРазместил: {escape_md('@'+shift['username']) if shift['username'] else shift['user_id']}"
+        text += '\nХочет смену позже'
     await callback.message.answer(
         text,
         reply_markup=keyboards.shift_detail_keyboard(shift['username'], shift_id),
@@ -250,10 +249,11 @@ async def set_preference(callback: CallbackQuery, state: FSMContext):
     )
     activity_log.log_new_shift(callback.from_user.full_name, start, end)
     shift_text = f"{start.day} {MONTHS_LIST[start.month-1]}, {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
-    await callback.message.edit_text(
+    await callback.message.answer(
         messages.SHIFT_POSTED.format(shift=shift_text),
         reply_markup=keyboards.main_kb,
     )
+    await callback.message.delete()
     await state.clear()
     await callback.answer()
 
@@ -522,9 +522,11 @@ async def cmd_dev_status(message: Message):
 
 
 @dp.errors()
-async def global_error_handler(update: types.Update, exception: Exception):
-    logging.error('Unhandled error: %s', exception)
-    if isinstance(update, CallbackQuery):
+async def global_error_handler(event: ErrorEvent):
+    """Send a friendly message when any unhandled error occurs."""
+    logging.error('Unhandled error: %s', event.exception)
+    update = event.update
+    if isinstance(update, CallbackQuery) and update.message:
         await update.message.answer(messages.OFFLINE_MESSAGE)
     elif isinstance(update, Message):
         await update.answer(messages.OFFLINE_MESSAGE)
