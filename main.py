@@ -105,11 +105,17 @@ async def show_shift(callback: CallbackQuery):
         await callback.answer('Смена не найдена', show_alert=True)
         return
     pref = shift.get('desired')
-    text = format_shift_short(shift) + f"\nРазместил: {escape_md('@'+shift['username']) if shift['username'] else shift['user_id']}"
+    text = format_shift_short(shift)
+    text += "\nРазместил: "
+    if shift['username']:
+        text += "@" + shift['username']
+    else:
+        text += str(shift['user_id'])
     if pref == 'earlier':
-        text += '\nХочет смену раньше'
+        text += "\nХочет смену раньше"
     elif pref == 'later':
-        text += '\nХочет смену позже'
+        text += "\nХочет смену позже"
+    text = escape_md(text)
     await callback.message.answer(
         text,
         reply_markup=keyboards.shift_detail_keyboard(shift['username'], shift_id),
