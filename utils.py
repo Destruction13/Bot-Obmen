@@ -71,18 +71,30 @@ def format_shift(row: dict) -> str:
     start = datetime.fromisoformat(row['start_time'])
     end = datetime.fromisoformat(row['end_time'])
     status = STATUS_TEXT.get(row['status'], row['status'])
+    pref = row.get('desired')
+    pref_text = ''
+    if pref == 'earlier':
+        pref_text = ' (хочет раньше)'
+    elif pref == 'later':
+        pref_text = ' (хочет позже)'
     return (
         f"{row['id']}: {start.day} {MONTHS_LIST[start.month - 1]}, "
-        f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')} {status}"
+        f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')} {status}{pref_text}"
     )
 
 
 def format_shift_short(row: dict) -> str:
     start = datetime.fromisoformat(row['start_time'])
     end = datetime.fromisoformat(row['end_time'])
+    pref = row.get('desired')
+    pref_text = ''
+    if pref == 'earlier':
+        pref_text = ' (хочет раньше)'
+    elif pref == 'later':
+        pref_text = ' (хочет позже)'
     return (
         f"{start.day} {MONTHS_LIST[start.month - 1]}, "
-        f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+        f"{start.strftime('%H:%M')} — {end.strftime('%H:%M')}{pref_text}"
     )
 
 

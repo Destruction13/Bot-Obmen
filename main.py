@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, ErrorEvent
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -31,6 +31,7 @@ db.init_db()
 class AddShift(StatesGroup):
     waiting_for_date = State()
     waiting_for_time = State()
+    waiting_for_pref = State()
 
 
 class OfferShift(StatesGroup):
@@ -66,6 +67,13 @@ async def cmd_add(message: Message, state: FSMContext):
 @dp.message(F.text == '\U0001F4C5 Доступные смены')
 async def cmd_pick_date(message: Message, state: FSMContext):
     await message.answer(messages.SELECT_DATE, reply_markup=await cal.start_calendar())
+    tomorrow = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    shifts = db.list_shifts_by_date(tomorrow, message.from_user.id, include_self=db.is_dev(message.from_user.id))
+    if shifts:
+        await message.answer(
+            messages.TOMORROW_SHIFTS,
+            reply_markup=keyboards.shifts_keyboard(shifts, 'shift'),
+        )
     await state.set_state(ViewDate.waiting_for_date)
 
 
@@ -96,7 +104,18 @@ async def show_shift(callback: CallbackQuery):
     if not shift:
         await callback.answer('Смена не найдена', show_alert=True)
         return
-    text = format_shift_short(shift) + f"\nРазместил: {escape_md('@'+shift['username']) if shift['username'] else shift['user_id']}"
+    pref = shift.get('desired')
+    text = format_shift_short(shift)
+    text += "\nРазместил: "
+    if shift['username']:
+        text += "@" + shift['username']
+    else:
+        text += str(shift['user_id'])
+    if pref == 'earlier':
+        text += "\nХочет смену раньше"
+    elif pref == 'later':
+        text += "\nХочет смену позже"
+    text = escape_md(text)
     await callback.message.answer(
         text,
         reply_markup=keyboards.shift_detail_keyboard(shift['username'], shift_id),
@@ -208,15 +227,41 @@ async def process_add_shift(message: Message, state: FSMContext):
         await message.answer(messages.TIME_FORMAT_ERROR)
         return
     start, end = parsed
-    db.add_shift(message.from_user.id, message.from_user.username or '', start, end)
-    activity_log.log_new_shift(message.from_user.full_name, start, end)
-    shift_text = f"{start.day} {MONTHS_LIST[start.month-1]}, {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+    await state.update_data(start=start, end=end)
     await message.answer(
+        messages.ENTER_PREFERENCE,
+        reply_markup=keyboards.preference_keyboard(),
+    )
+    await state.set_state(AddShift.waiting_for_pref)
+
+
+@dp.callback_query(F.data.startswith('pref:'), AddShift.waiting_for_pref)
+async def set_preference(callback: CallbackQuery, state: FSMContext):
+    pref = callback.data.split(':')[1]
+    data = await state.get_data()
+    start = data.get('start')
+    end = data.get('end')
+    if not start or not end:
+        await callback.message.answer('Ошибка состояния. Попробуйте снова.')
+        await state.clear()
+        await callback.answer()
+        return
+    db.add_shift(
+        callback.from_user.id,
+        callback.from_user.username or '',
+        start,
+        end,
+        desired=pref,
+    )
+    activity_log.log_new_shift(callback.from_user.full_name, start, end)
+    shift_text = f"{start.day} {MONTHS_LIST[start.month-1]}, {start.strftime('%H:%M')} — {end.strftime('%H:%M')}"
+    await callback.message.answer(
         messages.SHIFT_POSTED.format(shift=shift_text),
         reply_markup=keyboards.main_kb,
     )
+    await callback.message.delete()
     await state.clear()
-
+    await callback.answer()
 
 @dp.message(Command('list'))
 async def cmd_list(message: Message):
@@ -480,6 +525,18 @@ async def cmd_dev_status(message: Message):
     await message.answer(
         'Режим разработчика: ' + ('on' if db.is_dev(message.from_user.id) else 'off')
     )
+
+
+@dp.errors()
+async def global_error_handler(event: ErrorEvent):
+    """Send a friendly message when any unhandled error occurs."""
+    logging.error('Unhandled error: %s', event.exception)
+    update = event.update
+    if isinstance(update, CallbackQuery) and update.message:
+        await update.message.answer(messages.OFFLINE_MESSAGE)
+    elif isinstance(update, Message):
+        await update.answer(messages.OFFLINE_MESSAGE)
+    return True
 
 
 @dp.message()

@@ -22,7 +22,8 @@ def init_db() -> None:
                    end_time TEXT NOT NULL,
                    status TEXT NOT NULL,
                    offered_to_user_id INTEGER,
-                   offered_by_user_id INTEGER
+                   offered_by_user_id INTEGER,
+                   desired TEXT
                )'''
         )
         conn.execute(
@@ -32,14 +33,20 @@ def init_db() -> None:
                )'''
         )
         conn.commit()
+        # Ensure "desired" column exists in old databases
+        try:
+            conn.execute('ALTER TABLE shifts ADD COLUMN desired TEXT')
+        except sqlite3.OperationalError:
+            pass
+        conn.commit()
 
 
-def add_shift(user_id: int, username: str, start: datetime, end: datetime, status: str = 'active', offered_to: Optional[int] = None, offered_by: Optional[int] = None) -> int:
+def add_shift(user_id: int, username: str, start: datetime, end: datetime, status: str = 'active', offered_to: Optional[int] = None, offered_by: Optional[int] = None, desired: Optional[str] = None) -> int:
     with get_connection() as conn:
         cur = conn.execute(
-            'INSERT INTO shifts (user_id, username, start_time, end_time, status, offered_to_user_id, offered_by_user_id)'
-            ' VALUES (?, ?, ?, ?, ?, ?, ?)',
-            (user_id, username, start.isoformat(), end.isoformat(), status, offered_to, offered_by)
+            'INSERT INTO shifts (user_id, username, start_time, end_time, status, offered_to_user_id, offered_by_user_id, desired)'
+            ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            (user_id, username, start.isoformat(), end.isoformat(), status, offered_to, offered_by, desired)
         )
         conn.commit()
         return cur.lastrowid
@@ -134,7 +141,16 @@ def offer_shift(target_shift_id: int, offered_user_id: int, offered_username: st
             (target['user_id'], offered_user_id, target_shift_id)
         )
         conn.commit()
-    offer_id = add_shift(offered_user_id, offered_username, start, end, status='offered', offered_to=target['user_id'], offered_by=offered_user_id)
+    offer_id = add_shift(
+        offered_user_id,
+        offered_username,
+        start,
+        end,
+        status='offered',
+        offered_to=target['user_id'],
+        offered_by=offered_user_id,
+        desired=None,
+    )
     return offer_id
 
 
