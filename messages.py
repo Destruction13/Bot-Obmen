@@ -11,6 +11,8 @@ SHIFT_POSTED = (
     "Смена размещена на {shift}.\n"
     "Ожидай, когда кто-нибудь предложит обмен."
 )
+ENTER_PREFERENCE = "На какую смену ты бы хотел обменяться?"
+TOMORROW_SHIFTS = "Актуальные смены на завтра:"
 CHOOSE_SHIFT_DELETE = "Выберите смену для удаления:"
 OFFER_SENT = "Предложение отправлено владельцу смены."
 CHOOSE_MY_SHIFT = "Выберите свою смену для обмена:"
@@ -23,7 +25,9 @@ EXCHANGE_CONFIRMED = (
     "✅ Обмен подтверждён\!\n\n"
     "{name} подтвердил\(а\) обмен сменами на {date}:\n"
     "Твоя смена {target} на {offer}\n\n"
-    "Свяжитесь с WFM и подтвердите смену\."
+    "Свяжитесь с WFM и подтвердите обмен сменами\!\n"
+    "[Инструкция по работе с WFM](https://wiki.yandex-team.ru/bst/assessors/wfm/instrukcii-dlja-sapportov/)\n"
+    "[Форма для WFM](https://forms.yandex-team.ru/ext/surveys/13694819/)"
 )
 
 OFFER_DECLINED = (
@@ -45,3 +49,4 @@ HELP = (
     "/approve <id> – подтвердить обмен\n"
     "/help – показать эту справку"
 )
+OFFLINE_MESSAGE = "Произошли технические шоколадки, сорямба, скоро всё исправим!"

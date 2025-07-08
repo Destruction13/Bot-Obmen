@@ -59,3 +59,12 @@ def offer_action_keyboard(offer_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="❌ Отклонить обмен", callback_data=f"decline:{offer_id}")
     ]]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def preference_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for choosing shift preference."""
+    buttons = [[
+        InlineKeyboardButton(text="раньше", callback_data="pref:earlier"),
+        InlineKeyboardButton(text="позже", callback_data="pref:later"),
+    ]]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
