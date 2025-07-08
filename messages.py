@@ -31,7 +31,7 @@ EXCHANGE_CONFIRMED = (
 )
 
 OFFER_DECLINED = (
-    "{name} отклонил\(а\) твоё предложение по обмену смен на {date}:\n"
+    "{name} отклонил твоё предложение по обмену смен на {date}:\n"
     "Твою смену {target} на {offer}"
 )
 
