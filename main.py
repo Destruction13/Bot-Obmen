@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import threading
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
@@ -17,20 +16,9 @@ import keyboards
 import rus_calendar as cal
 from aiogram_calendar import simple_calendar
 import messages
-from flask import Flask
+from keep_alive import keep_alive
 
 logging.basicConfig(level=logging.INFO)
-
-app = Flask(__name__)
-
-
-@app.get('/')
-def home() -> str:
-    return 'Бот живой, не трожь.'
-
-
-def run_flask() -> None:
-    app.run(host='0.0.0.0', port=10000)
 
 # Токен бота хранится напрямую в коде. Не использовать env для простоты демонстрации.
 BOT_TOKEN = "7355813660:AAFE6dOJMaHuCMVCRXC6M8gen4ZlamnbZmM"
@@ -563,5 +551,5 @@ async def main() -> None:
 
 
 if __name__ == '__main__':
-    threading.Thread(target=run_flask, daemon=True).start()
+    keep_alive()
     asyncio.run(main())
